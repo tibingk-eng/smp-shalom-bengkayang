@@ -127,13 +127,52 @@ async function loadAttendancePage(){
   try{
     const date=$('attDate').value||localToday(), classId=$('attClass').value, status=$('attStatus').value;
     const j=await api('attendance_report',{session_token:me.session_token,date});
-    let rows=(j.rows||[]).filter(x=>!classId||x.class_id===classId).filter(x=>!status||x.status===status);
-    rows.sort((a,b)=>String(a.attended_at||'').localeCompare(String(b.attended_at||'')));
-    const count=s=>rows.filter(x=>x.status===s).length;
+    const attendance=j.rows||[];
+    const selectedClasses=classes.filter(c=>!classId||c.id===classId);
+    const records=[];
+
+    // Tampilkan semua siswa aktif pada kelas yang dipilih.
+    // Jika belum memiliki catatan presensi pada tanggal tersebut, otomatis ditandai Alfa/belum absen.
+    selectedClasses.forEach(cls=>{
+      students.filter(st=>st.class_id===cls.id && st.is_active!==false).forEach(st=>{
+        const found=attendance.find(x=>x.class_id===cls.id && x.user_id===st.id);
+        records.push(found ? {
+          ...found,
+          full_name:st.full_name,
+          class_name:cls.name
+        } : {
+          user_id:st.id,
+          class_id:cls.id,
+          full_name:st.full_name,
+          class_name:cls.name,
+          status:'alfa',
+          attended_date:date,
+          attended_at:null,
+          generated_alfa:true
+        });
+      });
+    });
+
+    let rows=records.filter(x=>!status||x.status===status);
+    rows.sort((a,b)=>{
+      const c=String(a.class_name||'').localeCompare(String(b.class_name||''),'id');
+      if(c)return c;
+      return String(a.full_name||'').localeCompare(String(b.full_name||''),'id');
+    });
+
+    const count=s=>records.filter(x=>x.status===s).length;
     $('attendanceSummary').innerHTML=['hadir','izin','sakit','alfa'].map(s=>`<div class="stat"><b>${s[0].toUpperCase()+s.slice(1)}</b><div class="num">${count(s)}</div></div>`).join('');
-    $('attendanceRows').innerHTML=rows.map((x,i)=>{const st=x.status||'-';const student=students.find(s=>s.id===x.user_id);const cls=classes.find(c=>c.id===x.class_id);const dt=x.attended_at?new Date(x.attended_at).toLocaleString('id-ID',{dateStyle:'short',timeStyle:'short'}):'-';return `<tr><td>${i+1}</td><td><b>${esc(student?.full_name||x.full_name||'-')}</b></td><td>${esc(cls?.name||x.class_name||'-')}</td><td><span class="badge">${esc(st)}</span></td><td>${esc(x.attended_date||date)}</td><td>${esc(dt)}</td></tr>`}).join('');
+    $('attendanceRows').innerHTML=rows.map((x,i)=>{
+      const st=x.status||'-';
+      const dt=x.attended_at?new Date(x.attended_at).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):'-';
+      const badgeClass=x.generated_alfa?'badge':'badge';
+      return `<tr><td>${i+1}</td><td><b>${esc(x.full_name||'-')}</b></td><td>${esc(x.class_name||'-')}</td><td><span class="${badgeClass}">${esc(st)}</span></td><td>${esc(x.attended_date||date)}</td><td>${esc(dt)}</td></tr>`
+    }).join('');
     $('attendanceEmpty').classList.toggle('hidden',rows.length>0);
-  }catch(e){$('attendanceRows').innerHTML='';notify($('attendanceEmpty'),'Gagal memuat rekap presensi: '+e.message,'err')}
+  }catch(e){
+    $('attendanceRows').innerHTML='';
+    notify($('attendanceEmpty'),'Gagal memuat rekap presensi: '+e.message,'err')
+  }
 }
 
 async function loadQuizzes(){try{const cid=roleNow==='student'?{class_id:me.class_id}:{};const j=await api('quizzes',cid);const qs=j.quizzes||[];renderQuizList(qs);if(roleNow==='admin'){const sel=$('questionQuiz');if(sel)sel.innerHTML=qs.map(q=>`<option value="${q.id}">${esc(q.title)} — ${esc(q.classes?.name||'')}</option>`).join('');$('quizBuilder').classList.toggle('hidden',!qs.length);await loadQuizAttempts()} }catch(e){console.error(e);if($('quizList'))$('quizList').innerHTML='<p class="notice err">Gagal memuat kuis: '+esc(e.message)+'</p>'}}
