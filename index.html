@@ -25,7 +25,7 @@ function setLoginRole(r){
   sb.classList.toggle("light",r!=="student");
   ab.classList.toggle("light",r!=="admin");
 }
-const SUPA='https://dmcyyfnxtpgegkfcivvq.supabase.co';const API=SUPA+'/functions/v1/sibasa-api';const DELETE_API=SUPA+'/functions/v1/sibasa-api-delete-helper';const SHALOM_CLASS_NAMES=['VIII A','VIII B'];
+const SUPA='https://dmcyyfnxtpgegkfcivvq.supabase.co';const API=SUPA+'/functions/v1/sibasa-api';const DELETE_API=SUPA+'/functions/v1/sibasa-api-delete-helper';const EDIT_API=SUPA+'/functions/v1/sibasa-api-edit-helper';const SHALOM_CLASS_NAMES=['VIII A','VIII B'];
 let classes=[],students=[],rooms=[],materials=[],assignments=[],me=null,roleNow='';
 const $=id=>document.getElementById(id);
 async function api(action,data={}){const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...data})});let j={};try{j=await r.json()}catch{}if(!r.ok||j.ok===false)throw new Error(j.message||'Permintaan gagal');return j}
@@ -35,13 +35,32 @@ function fillClasses(){const html=classes.map(c=>`<option value="${c.id}">${esc(
 async function updateNames(){const c=$('kelas').value;if(!c)return;try{const j=await api('students',{class_id:c});$('daftar').innerHTML=(j.students||[]).map(s=>`<option value="${esc(s.full_name)}">`).join('')}catch{}}
 $('kelas').addEventListener('change',updateNames);
 async function loadStudents(){try{const j=await api('students');students=(j.students||[]).filter(s=>classes.some(c=>c.id===s.class_id));renderStudents();$('ts').textContent=students.length;renderClasses()}catch(e){console.error(e)}}
-function renderStudents(){ $('rows').innerHTML=students.map(s=>`<tr><td>${esc(s.full_name)}</td><td>${esc(classes.find(c=>c.id===s.class_id)?.name||'-')}</td><td><span class="badge">${s.is_active?'Aktif':'Nonaktif'}</span></td><td><button class="danger" type="button" onclick="deleteStudent('${s.id}')">🗑️ Hapus</button></td></tr>`).join('') }
+function renderStudents(){ $('rows').innerHTML=students.map(s=>`<tr><td>${esc(s.full_name)}</td><td>${esc(classes.find(c=>c.id===s.class_id)?.name||'-')}</td><td><span class="badge">${s.is_active?'Aktif':'Nonaktif'}</span></td><td><button class="danger" type="button" onclick="editStudent('${s.id}','${esc(s.full_name)}','${s.class_id}')">✏️ Edit</button> <button class="danger" type="button" onclick="deleteStudent('${s.id}','${esc(s.full_name)}')">🗑️ Hapus</button></td></tr>`).join('') }
 function renderClasses(){ $('tc').textContent=classes.length;$('classList').innerHTML=classes.map(c=>`<div class="stat"><b>${esc(c.name)}</b><div class="muted">${students.filter(s=>s.class_id===c.id).length} siswa</div></div>`).join('') }
 async function studentIn(){const classId=$('kelas').value,n=$('nama').value.trim();if(!n)return alert('Masukkan nama siswa.');try{const j=await api('student_login',{class_id:classId,full_name:n});me=j.student;roleNow='student';sessionStorage.setItem('student',JSON.stringify(me));openApp();await refreshStudent();}catch(e){notify($('msg'),e.message,'err')}}
 async function adminIn(){const u=$('user').value.trim(),p=$('pass').value;if(!u||!p)return alert('Masukkan username dan password.');try{const j=await api('admin_login',{username:u,password:p});me=j.user;me.session_token=j.session_token;roleNow='admin';sessionStorage.setItem('admin',JSON.stringify(me));openApp();await refreshAll();}catch(e){notify($('msg'),e.message,'err')}}
 function openApp(){$('login').classList.add('hidden');$('adminQuick').classList.toggle('hidden',roleNow!=='admin');$('app').classList.remove('hidden');$('nStudents').classList.toggle('hidden',roleNow!=='admin');$('adminRoomForm').classList.toggle('hidden',roleNow!=='admin');$('adminQuizForm').classList.toggle('hidden',roleNow!=='admin');$('welcome').textContent=roleNow==='admin'?'Dashboard Admin':'Selamat datang, '+me.full_name;$('roleInfo').textContent=roleNow==='admin'?'Kelola data siswa, pembelajaran, dan kelas virtual.':('Kelas '+me.class_name+' • Siswa');if(roleNow==='student'){$('studentQuick').innerHTML='<div class="stat"><b>Presensi Hari Ini</b><p class="muted">Tekan tombol di bawah setelah masuk kelas.</p><button onclick="present()">✓ Saya Hadir</button><div id="presMsg"></div></div><div class="stat"><b>Kelas Saya</b><p>'+esc(me.class_name)+'</p><p class="muted">Lihat materi, tugas, dan ruang virtual.</p></div>'}else $('studentQuick').innerHTML=''}
 async function refreshStudent(){await Promise.all([loadStudentRooms(),loadLearning(),loadQuizzes(),loadResultsPage()]);}
 async function refreshAll(){await Promise.all([loadStudents(),loadRooms(),loadLearning(),loadQuizzes(),loadResultsPage()]);if(roleNow==='admin')await loadAttendanceReport();}
+
+async function editStudent(id,currentName,currentClassId){
+  const name=prompt('Edit nama siswa:',currentName);
+  if(name===null)return;
+  const n=name.trim(); if(n.length<2)return alert('Nama minimal 2 karakter.');
+  const opts=classes.map((c,i)=>`${i+1}. ${c.name}`).join('\n');
+  const current=classes.findIndex(c=>c.id===currentClassId);
+  const choice=prompt('Pilih kelas dengan nomor:\n'+opts,String(current>=0?current+1:1));
+  if(choice===null)return;
+  const idx=Number(choice)-1; const c=classes[idx];
+  if(!c)return alert('Pilihan kelas tidak valid.');
+  try{
+    const r=await fetch(EDIT_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_token:me.session_token,student_id:id,full_name:n,class_id:c.id})});
+    let j={};try{j=await r.json()}catch{}
+    if(!r.ok||j.ok===false)throw new Error(j.message||'Gagal memperbarui siswa.');
+    notify($('studentMsg'),'Data siswa berhasil diperbarui.','ok');
+    await loadStudents(); updateNames();
+  }catch(e){notify($('studentMsg'),e.message,'err')}
+}
 
 async function deleteStudent(id,name){
   if(!confirm('Hapus siswa '+name+' dari daftar aktif?\n\nData akan dinonaktifkan agar riwayat tugas, nilai, dan presensi tetap aman.'))return;
